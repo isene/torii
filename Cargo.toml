@@ -1,0 +1,22 @@
+[package]
+name = "fe2o3-torii"
+version = "0.1.0"
+edition = "2021"
+authors = ["Geir Isene <g@isene.com>"]
+description = "Captive-portal listener for NetworkManager. Replaces Firefox's removed login-page banner. Member of the Fe2O3 suite."
+license = "Unlicense"
+repository = "https://github.com/isene/torii"
+readme = "README.md"
+
+[[bin]]
+name = "torii"
+path = "src/main.rs"
+
+[dependencies]
+zbus = { version = "5", features = ["blocking-api"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

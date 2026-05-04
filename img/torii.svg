@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#0a0a14"/>
+    </linearGradient>
+    <linearGradient id="rust" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f74c00"/>
+      <stop offset="100%" style="stop-color:#b7410e"/>
+    </linearGradient>
+    <linearGradient id="gateLightTop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff6a1a"/>
+      <stop offset="100%" style="stop-color:#c84300"/>
+    </linearGradient>
+    <linearGradient id="gateColumn" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#a83400"/>
+      <stop offset="50%" style="stop-color:#f74c00"/>
+      <stop offset="100%" style="stop-color:#a83400"/>
+    </linearGradient>
+    <radialGradient id="moon" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#ffe9b8"/>
+      <stop offset="100%" style="stop-color:#cfa867"/>
+    </radialGradient>
+  </defs>
+  <style>
+    @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+    .signal { animation: pulse 2s ease-in-out infinite; transform-origin: 128px 200px; }
+  </style>
+
+  <!-- Disc background -->
+  <circle cx="128" cy="128" r="120" fill="url(#bg)" stroke="url(#rust)" stroke-width="3"/>
+
+  <!-- Moon behind the gate (the network beyond) -->
+  <circle cx="128" cy="100" r="22" fill="url(#moon)" opacity="0.8"/>
+
+  <!-- Distant horizon line -->
+  <line x1="34" y1="172" x2="222" y2="172" stroke="#3a7aff" stroke-width="1" opacity="0.5"/>
+
+  <!-- Torii gate — Japanese sacred-portal silhouette in rust orange -->
+  <!-- Kasagi: top crossbeam (curved up at the ends, classical myojin style) -->
+  <path d="M 38 64
+           Q 128 44 218 64
+           L 218 76
+           Q 128 56 38 76
+           Z" fill="url(#gateLightTop)"/>
+
+  <!-- Nuki: lower lintel beam (straight, joins the columns) -->
+  <rect x="50" y="92" width="156" height="14" fill="url(#gateColumn)"/>
+
+  <!-- Gakuzuka: small central plaque between the two beams -->
+  <rect x="120" y="78" width="16" height="14" fill="#0a0a14" stroke="url(#rust)" stroke-width="1.5"/>
+
+  <!-- Hashira: two columns supporting the structure -->
+  <!-- Left column (slightly tapered) -->
+  <path d="M 64 92 L 60 200 L 80 200 L 76 92 Z" fill="url(#gateColumn)"/>
+  <!-- Right column -->
+  <path d="M 192 92 L 196 200 L 176 200 L 180 92 Z" fill="url(#gateColumn)"/>
+
+  <!-- Ground plane -->
+  <line x1="40" y1="200" x2="216" y2="200" stroke="url(#rust)" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Signal-watcher ripples below the gate (suggesting D-Bus listening) -->
+  <g class="signal" stroke="#3a7aff" stroke-width="1.5" fill="none" opacity="0.7">
+    <ellipse cx="128" cy="208" rx="20" ry="3"/>
+    <ellipse cx="128" cy="212" rx="36" ry="4"/>
+    <ellipse cx="128" cy="216" rx="56" ry="5"/>
+  </g>
+</svg>
