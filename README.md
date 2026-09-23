@@ -20,7 +20,7 @@ and watches the `Connectivity` property:
 
 | Transition | Action |
 |---|---|
-| `* → portal` (value 2) | Critical dunst notification + `firefox --new-tab http://<gateway-ip>/` |
+| `* → portal` (value 2) | Critical dunst notification + `gaze http://<gateway-ip>/`, or firefox where there is no gaze |
 | `portal → full` | Low-urgency "Connected" notification |
 | anything else | ignored |
 
@@ -41,7 +41,7 @@ restores the banner's behavior in a window-manager-independent way.
 - **1.9 MB** stripped binary
 - **~4 MB** resident memory idle
 - **0** wakeups per second when the network is steady
-- One subprocess spawn (`firefox`) per actual portal event
+- One subprocess spawn (`gaze`) per actual portal event
 
 ## Install
 

@@ -147,16 +147,22 @@ fn handle_portal(conn: &Connection) {
         Some(gw) => format!("http://{}/", gw),
         None => "http://detectportal.firefox.com/".to_string(),
     };
-    log(&format!("opening firefox: {}", url));
-    let res = Command::new("firefox")
-        .arg("--new-tab")
-        .arg(&url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-    if let Err(e) = res {
-        log(&format!("firefox spawn failed: {}", e));
+    // gaze is the browser here, and a portal page opens as a tab in the
+    // window that is already up. Firefox stands behind it, for a machine
+    // that has no gaze.
+    for (browser, args) in [("gaze", &[][..]), ("firefox", &["--new-tab"][..])] {
+        log(&format!("opening {}: {}", browser, url));
+        let res = Command::new(browser)
+            .args(args)
+            .arg(&url)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        match res {
+            Ok(_) => return,
+            Err(e) => log(&format!("{} would not start: {}", browser, e)),
+        }
     }
 }
 
