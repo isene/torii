@@ -3,7 +3,7 @@
 //! Replaces Firefox's removed "Open network login page" banner. Subscribes
 //! to NetworkManager's PropertiesChanged signal on the system bus, watches
 //! the Connectivity property, and on a `* → portal` transition opens
-//! Firefox at the active gateway IP. On `portal → full` it sends a
+//! the portal's login page in gaze. On `portal → full` it sends a
 //! "Connected" notification.
 //!
 //! Signal-driven only — no polling. Idle cost is one process parked in
@@ -188,14 +188,23 @@ fn handle_portal(conn: &Connection) {
         return;
     }
     notify(conn, "Captive portal", "Opening login page…", 2);
-    let gw = gateway_ip(conn);
-    let url = match &gw {
-        Some(gw) => format!("http://{}/", gw),
-        None => "http://detectportal.firefox.com/".to_string(),
+    // The login page is where the portal sends the connectivity check:
+    // it answers that plain-HTTP request with a redirect to its own page
+    // (a UniFi guest portal on 192.168.1.1:8880, say), which need not be
+    // the gateway at all. No redirect: open the check address itself and
+    // let the portal take the browser there. The gateway is the last
+    // resort, for when even the check cannot be sent.
+    let probe = check_uri(conn);
+    let raw = split_http(&probe).map(|(h, port, path)| http_get(&h, port, &path));
+    save_capture(&probe, raw.as_deref());
+    let url = match raw.as_deref().map(|r| (r, redirect_target(r, &probe))) {
+        Some((_, Some(to))) => to,
+        Some((r, None)) if r.starts_with("HTTP/") => probe,
+        _ => match gateway_ip(conn) {
+            Some(gw) => format!("http://{}/", gw),
+            None => probe,
+        },
     };
-    // Keep the portal's raw answer, for when a browser fails on it.
-    let host = gw.clone();
-    std::thread::spawn(move || capture_portal(host));
     // gaze is the browser here, and a portal page opens as a tab in the
     // window that is already up. Firefox stands behind it, for a machine
     // that has no gaze.
@@ -215,41 +224,80 @@ fn handle_portal(conn: &Connection) {
     }
 }
 
-/// Fetch the portal page and the connectivity check page the way a
-/// browser would, and write both raw answers (status, headers, the
-/// first 8 KB) to ~/.torii/last-portal.txt. Runs once per portal, on
-/// its own thread, so the browser opens without waiting for it.
-fn capture_portal(gw: Option<String>) {
+/// NetworkManager's connectivity check address, the one a portal
+/// intercepts.
+fn check_uri(conn: &Connection) -> String {
+    Proxy::new(conn, NM_SERVICE, NM_PATH, DBUS_PROPS).ok()
+        .and_then(|p| p.call::<_, _, OwnedValue>("Get", &(NM_IFACE, "ConnectivityCheckUri")).ok())
+        .and_then(|v| String::try_from(v).ok())
+        .filter(|u| u.starts_with("http://"))
+        .unwrap_or_else(|| "http://connectivity-check.ubuntu.com/".into())
+}
+
+/// `http://host[:port]/path` as (host, port, path); None for anything
+/// else, since only plain HTTP gets redirected by a portal.
+fn split_http(uri: &str) -> Option<(String, u16, String)> {
+    let rest = uri.strip_prefix("http://")?;
+    let (hostport, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/"),
+    };
+    let (host, port) = match hostport.rsplit_once(':') {
+        Some((h, p)) => (h, p.parse().ok()?),
+        None => (hostport, 80),
+    };
+    Some((host.to_string(), port, path.to_string()))
+}
+
+/// One plain-HTTP GET the way a browser sends it: the raw answer, at
+/// most 8 KB, or a line saying why there is none.
+fn http_get(host: &str, port: u16, path: &str) -> String {
     use std::io::{Read, Write};
     use std::net::{TcpStream, ToSocketAddrs};
-    let fetch = |host: &str, path: &str| -> String {
-        // IPv4 first: a portal network rarely routes IPv6.
-        let addrs: Vec<_> = (host, 80).to_socket_addrs().map(|a| a.collect()).unwrap_or_default();
-        let addr = match addrs.iter().find(|a| a.is_ipv4()).or(addrs.first()).copied() {
-            Some(a) => a,
-            None => return format!("cannot resolve {host}\n"),
-        };
-        let mut s = match TcpStream::connect_timeout(&addr, Duration::from_secs(4)) {
-            Ok(s) => s,
-            Err(e) => return format!("cannot connect to {host}: {e}\n"),
-        };
-        let _ = s.set_read_timeout(Some(Duration::from_secs(4)));
-        let req = format!(
-            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64) torii\r\n\
-             Accept: text/html,*/*\r\nConnection: close\r\n\r\n");
-        if let Err(e) = s.write_all(req.as_bytes()) {
-            return format!("cannot send to {host}: {e}\n");
-        }
-        let mut buf = Vec::new();
-        let _ = s.take(8192).read_to_end(&mut buf);
-        String::from_utf8_lossy(&buf).into_owned()
+    // IPv4 first: a portal network rarely routes IPv6.
+    let addrs: Vec<_> = (host, port).to_socket_addrs().map(|a| a.collect()).unwrap_or_default();
+    let addr = match addrs.iter().find(|a| a.is_ipv4()).or(addrs.first()).copied() {
+        Some(a) => a,
+        None => return format!("cannot resolve {host}\n"),
     };
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let mut out = format!("portal seen at {now} (unix time)\n");
-    if let Some(gw) = gw {
-        out.push_str(&format!("\n===== http://{gw}/\n{}", fetch(&gw, "/")));
+    let mut s = match TcpStream::connect_timeout(&addr, Duration::from_secs(4)) {
+        Ok(s) => s,
+        Err(e) => return format!("cannot connect to {host}: {e}\n"),
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_secs(4)));
+    let req = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64) torii\r\n\
+         Accept: text/html,*/*\r\nConnection: close\r\n\r\n");
+    if let Err(e) = s.write_all(req.as_bytes()) {
+        return format!("cannot send to {host}: {e}\n");
     }
-    out.push_str(&format!("\n===== http://connectivity-check.ubuntu.com/\n{}", fetch("connectivity-check.ubuntu.com", "/")));
+    let mut buf = Vec::new();
+    let _ = s.take(8192).read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// The Location of a 3xx answer, made absolute against `base`.
+fn redirect_target(raw: &str, base: &str) -> Option<String> {
+    let status = raw.lines().next()?.split_whitespace().nth(1)?;
+    if !status.starts_with('3') {
+        return None;
+    }
+    let loc = raw.lines()
+        .take_while(|l| !l.trim().is_empty())
+        .find_map(|l| l.split_once(':').filter(|(k, _)| k.trim().eq_ignore_ascii_case("location")).map(|(_, v)| v.trim().to_string()))?;
+    if loc.starts_with('/') {
+        let (h, port, _) = split_http(base)?;
+        let hp = if port == 80 { h } else { format!("{h}:{port}") };
+        return Some(format!("http://{hp}{loc}"));
+    }
+    Some(loc)
+}
+
+/// The portal's answer to the check, kept in ~/.torii/last-portal.txt
+/// for when a login page still fails to show.
+fn save_capture(probe: &str, raw: Option<&str>) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let out = format!("portal seen at {now} (unix time)\n\n===== {probe}\n{}", raw.unwrap_or("not a plain-HTTP address\n"));
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let dir = std::path::Path::new(&home).join(".torii");
     let _ = std::fs::create_dir_all(&dir);
@@ -308,4 +356,25 @@ fn notify(_system_conn: &Connection, summary: &str, body: &str, urgency: u8) {
         "Notify",
         &("torii", 0u32, "", summary, body, actions, hints, timeout),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_portal_redirect_is_followed() {
+        let raw = "HTTP/1.1 302 Moved Temporarily\r\nConnection: close\r\nLocation: http://192.168.1.1:8880/guest/s/default/?ap=x\r\n\r\n";
+        assert_eq!(redirect_target(raw, "http://connectivity-check.ubuntu.com/").as_deref(), Some("http://192.168.1.1:8880/guest/s/default/?ap=x"));
+        let rel = "HTTP/1.1 302 Found\r\nlocation: /login\r\n\r\n";
+        assert_eq!(redirect_target(rel, "http://10.0.0.1:8080/").as_deref(), Some("http://10.0.0.1:8080/login"));
+        assert_eq!(redirect_target("HTTP/1.1 204 No Content\r\n\r\n", "http://x/"), None);
+    }
+
+    #[test]
+    fn plain_http_addresses_split() {
+        assert_eq!(split_http("http://connectivity-check.ubuntu.com/"), Some(("connectivity-check.ubuntu.com".into(), 80, "/".into())));
+        assert_eq!(split_http("http://1.2.3.4:8880/a?b"), Some(("1.2.3.4".into(), 8880, "/a?b".into())));
+        assert_eq!(split_http("https://x/"), None);
+    }
 }

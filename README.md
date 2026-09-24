@@ -6,7 +6,7 @@
 
 Captive-portal listener for NetworkManager. Replaces Firefox's removed
 "Open network login page" banner with a single small daemon that
-opens Firefox at the gateway IP when a portal is detected.
+opens the portal's login page in gaze (or Firefox) when a portal is detected.
 
 Member of the [Fe₂O₃](https://github.com/isene/fe2o3) Rust terminal
 suite ([landing page](https://isene.org/fe2o3/)).
@@ -20,20 +20,30 @@ and watches the `Connectivity` property:
 
 | Transition | Action |
 |---|---|
-| `* → portal` (value 2) | Critical dunst notification + `gaze http://<gateway-ip>/`, or firefox where there is no gaze |
+| `* → portal` (value 2) | Critical notification, then the login page opens in gaze, or Firefox where there is no gaze |
 | `portal → full` | Low-urgency "Connected" notification |
 | anything else | ignored |
 
-Signal-driven only. The process parks in `epoll_wait` on the D-Bus
-socket and only resumes when NM emits a real connectivity transition.
-Idle CPU = 0. NM already runs the connectivity probe periodically;
-torii adds nothing on top of that — it just listens.
+The login page is where the portal sends NetworkManager's connectivity
+check. torii sends that plain-HTTP request once and opens the address
+the portal redirects it to (a UniFi guest portal on another subnet, say).
+With no redirect it opens the check address itself, and the portal takes
+the browser from there.
+
+The portal's answer is kept in
+`~/.torii/last-portal.txt`, for when a login page still fails to show.
+
+Signal-driven. The process parks in `epoll_wait` on the D-Bus socket
+and resumes only when NM reports a change. NM checks for a portal every
+five minutes; when a connection comes up, torii asks for a check after
+3 s, and once more after 15 s if the network was still settling. Idle
+CPU = 0.
 
 ## Why this exists
 
 Mozilla removed Firefox's "Open network login page" banner. Without
 it, joining hotel / airport / coffee-shop wifi means manually noticing
-that nothing loads, guessing the gateway IP, and opening it. torii
+that nothing loads, then finding the login page. torii
 restores the banner's behavior in a window-manager-independent way.
 
 ## Footprint
