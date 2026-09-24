@@ -1,6 +1,6 @@
 [package]
 name = "fe2o3-torii"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["Geir Isene <g@isene.com>"]
 description = "Captive-portal listener for NetworkManager. Replaces Firefox's removed login-page banner. Member of the Fe2O3 suite."

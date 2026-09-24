@@ -188,10 +188,14 @@ fn handle_portal(conn: &Connection) {
         return;
     }
     notify(conn, "Captive portal", "Opening login page…", 2);
-    let url = match gateway_ip(conn) {
+    let gw = gateway_ip(conn);
+    let url = match &gw {
         Some(gw) => format!("http://{}/", gw),
         None => "http://detectportal.firefox.com/".to_string(),
     };
+    // Keep the portal's raw answer, for when a browser fails on it.
+    let host = gw.clone();
+    std::thread::spawn(move || capture_portal(host));
     // gaze is the browser here, and a portal page opens as a tab in the
     // window that is already up. Firefox stands behind it, for a machine
     // that has no gaze.
@@ -209,6 +213,47 @@ fn handle_portal(conn: &Connection) {
             Err(e) => log(&format!("{} would not start: {}", browser, e)),
         }
     }
+}
+
+/// Fetch the portal page and the connectivity check page the way a
+/// browser would, and write both raw answers (status, headers, the
+/// first 8 KB) to ~/.torii/last-portal.txt. Runs once per portal, on
+/// its own thread, so the browser opens without waiting for it.
+fn capture_portal(gw: Option<String>) {
+    use std::io::{Read, Write};
+    use std::net::{TcpStream, ToSocketAddrs};
+    let fetch = |host: &str, path: &str| -> String {
+        // IPv4 first: a portal network rarely routes IPv6.
+        let addrs: Vec<_> = (host, 80).to_socket_addrs().map(|a| a.collect()).unwrap_or_default();
+        let addr = match addrs.iter().find(|a| a.is_ipv4()).or(addrs.first()).copied() {
+            Some(a) => a,
+            None => return format!("cannot resolve {host}\n"),
+        };
+        let mut s = match TcpStream::connect_timeout(&addr, Duration::from_secs(4)) {
+            Ok(s) => s,
+            Err(e) => return format!("cannot connect to {host}: {e}\n"),
+        };
+        let _ = s.set_read_timeout(Some(Duration::from_secs(4)));
+        let req = format!(
+            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64) torii\r\n\
+             Accept: text/html,*/*\r\nConnection: close\r\n\r\n");
+        if let Err(e) = s.write_all(req.as_bytes()) {
+            return format!("cannot send to {host}: {e}\n");
+        }
+        let mut buf = Vec::new();
+        let _ = s.take(8192).read_to_end(&mut buf);
+        String::from_utf8_lossy(&buf).into_owned()
+    };
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let mut out = format!("portal seen at {now} (unix time)\n");
+    if let Some(gw) = gw {
+        out.push_str(&format!("\n===== http://{gw}/\n{}", fetch(&gw, "/")));
+    }
+    out.push_str(&format!("\n===== http://connectivity-check.ubuntu.com/\n{}", fetch("connectivity-check.ubuntu.com", "/")));
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let dir = std::path::Path::new(&home).join(".torii");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("last-portal.txt"), out);
 }
 
 fn handle_cleared(conn: &Connection) {
