@@ -29,6 +29,9 @@ const NOTIFY_SERVICE: &str = "org.freedesktop.Notifications";
 const NOTIFY_PATH: &str = "/org/freedesktop/Notifications";
 const NOTIFY_IFACE: &str = "org.freedesktop.Notifications";
 
+// NetworkManager's State: 50 and up means connected (local, site, global).
+const NM_STATE_CONNECTED: u32 = 50;
+
 // Connectivity values from NetworkManager.
 const CONN_NONE: u32 = 1;
 const CONN_PORTAL: u32 = 2;
@@ -107,6 +110,7 @@ fn run_loop(conn: &Connection) {
     };
 
     let mut prev = initial;
+    let mut prev_state = read_state(conn).unwrap_or(0);
     for msg in iter {
         let msg = match msg {
             Ok(m) => m,
@@ -121,6 +125,14 @@ fn run_loop(conn: &Connection) {
             Err(_) => continue,
         };
         if iface != NM_IFACE { continue; }
+        // Just connected: have NetworkManager look for a portal now,
+        // not at its next check up to five minutes away.
+        if let Some(state) = changed.get("State").and_then(|v| u32::try_from(v).ok()) {
+            if state >= NM_STATE_CONNECTED && prev_state < NM_STATE_CONNECTED {
+                check_soon(conn.clone());
+            }
+            prev_state = state;
+        }
         let new_v = match changed.get("Connectivity") {
             Some(v) => match u32::try_from(v) {
                 Ok(n) => n,
@@ -141,7 +153,40 @@ fn run_loop(conn: &Connection) {
     }
 }
 
+/// Ask NetworkManager for a connectivity check 3 s after connecting,
+/// and once more 12 s later if the network was still settling. A
+/// portal it finds arrives as the usual Connectivity change. Runs on
+/// its own short-lived thread, only when a connection comes up.
+fn check_soon(conn: Connection) {
+    std::thread::spawn(move || {
+        for wait in [3, 12] {
+            std::thread::sleep(Duration::from_secs(wait));
+            let Ok(nm) = Proxy::new(&conn, NM_SERVICE, NM_PATH, NM_IFACE) else { return };
+            let got: Result<u32, _> = nm.call("CheckConnectivity", &());
+            match got {
+                Ok(v) => {
+                    log(&format!("check after connect: {}", conn_name(v)));
+                    if v == CONN_PORTAL || v == CONN_FULL { return; }
+                }
+                Err(e) => { log(&format!("check failed: {}", e)); return; }
+            }
+        }
+    });
+}
+
+fn read_state(conn: &Connection) -> Option<u32> {
+    let proxy = Proxy::new(conn, NM_SERVICE, NM_PATH, DBUS_PROPS).ok()?;
+    let v: OwnedValue = proxy.call("Get", &(NM_IFACE, "State")).ok()?;
+    u32::try_from(&v).ok()
+}
+
 fn handle_portal(conn: &Connection) {
+    // The network may have gone in the meantime (a portal reported just
+    // as the Wi-Fi went off); a page opened then only says unreachable.
+    if read_state(conn).unwrap_or(0) < NM_STATE_CONNECTED {
+        log("portal reported, but no longer connected; not opening");
+        return;
+    }
     notify(conn, "Captive portal", "Opening login page…", 2);
     let url = match gateway_ip(conn) {
         Some(gw) => format!("http://{}/", gw),
