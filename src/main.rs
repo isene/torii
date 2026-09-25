@@ -247,7 +247,13 @@ fn handle_portal(conn: &Connection) {
             .stderr(std::process::Stdio::null())
             .spawn();
         match res {
-            Ok(_) => return,
+            // gaze hands the page to the window that is up and ends at
+            // once. Wait for it on a short thread, or every login page
+            // leaves a dead process behind for as long as torii runs.
+            Ok(mut child) => {
+                std::thread::spawn(move || child.wait());
+                return;
+            }
             Err(e) => log(&format!("{} would not start: {}", browser, e)),
         }
     }

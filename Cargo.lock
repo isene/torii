@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "fe2o3-torii"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "blocking",
  "fe2o3-crust",
