@@ -70,11 +70,14 @@ exec /home/geir/bin/torii
 ## Usage
 
 ```sh
-torii            # daemon mode (long-lived, signal-driven)
+torii            # in a terminal: what torii knows; without one: the listener
+torii --daemon   # the listener, even from a terminal
 torii --once     # read current connectivity once and exit
 ```
 
-Logs to stderr, prefixed `[torii]`. Every transition is logged.
+The listener logs to stderr, prefixed `[torii]`. Every transition is logged.
+
+In a terminal, as the fe2o3 launcher starts it, torii shows whether the listener runs, the network you are on, its way out (the internet or a login page), and the last login page it opened. `o` opens the login page, `c` has NetworkManager check again, and `q` or `Esc` goes back.
 
 ## Testing without travelling
 

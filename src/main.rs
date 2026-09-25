@@ -9,7 +9,10 @@
 //! Signal-driven only — no polling. Idle cost is one process parked in
 //! epoll_wait on the D-Bus socket. CPU when idle = 0.
 
+mod view;
+
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::collections::HashMap;
 
@@ -49,12 +52,38 @@ fn conn_name(v: u32) -> &'static str {
     }
 }
 
+/// Set by the terminal view, where a log line would write over the screen.
+static QUIET: AtomicBool = AtomicBool::new(false);
+
 fn log(msg: &str) {
-    eprintln!("[torii] {}", msg);
+    if !QUIET.load(Ordering::Relaxed) {
+        eprintln!("[torii] {}", msg);
+    }
 }
 
 fn main() {
-    let once = std::env::args().nth(1).as_deref() == Some("--once");
+    let arg = std::env::args().nth(1).unwrap_or_default();
+    if arg == "-v" || arg == "--version" {
+        println!("torii {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if arg == "-h" || arg == "--help" {
+        println!("torii — opens a network's login page when NetworkManager finds one");
+        println!();
+        println!("  torii            in a terminal: the listener's state, the way out, the last login page");
+        println!("                   without one: the listener");
+        println!("  torii --daemon   the listener, even from a terminal");
+        println!("  torii --once     check once, open the login page if there is one, and exit");
+        return;
+    }
+    // Inside a terminal (the fe2o3 launcher, a shell) torii shows what it
+    // knows and lets go on q; without one it is the listener.
+    use std::io::IsTerminal;
+    if arg.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        view::run();
+        return;
+    }
+    let once = arg == "--once";
 
     if once {
         match Connection::system() {

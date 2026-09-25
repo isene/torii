@@ -1,6 +1,6 @@
 [package]
 name = "fe2o3-torii"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["Geir Isene <g@isene.com>"]
 description = "Captive-portal listener for NetworkManager. Replaces Firefox's removed login-page banner. Member of the Fe2O3 suite."
@@ -13,6 +13,7 @@ name = "torii"
 path = "src/main.rs"
 
 [dependencies]
+crust = { version = "0.1", path = "../crust", package = "fe2o3-crust" }
 zbus = { version = "5", features = ["blocking-api"] }
 # 1.7 keeps an idle helper thread forever, waking it twice a second.
 blocking = "=1.6.2"
