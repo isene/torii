@@ -64,7 +64,7 @@ Autostart from your WM config (`~/.tilerc`, `~/.xprofile`, systemd
 `--user` unit, etc.):
 
 ```
-exec /home/geir/bin/torii
+exec /home/you/bin/torii
 ```
 
 ## Usage
