@@ -102,14 +102,15 @@ fn draw(conn: Option<&Connection>, note: &str) {
 
     // The bar along the bottom, the version at the far right.
     let foot = if note.is_empty() { "o open the login page · c check now · q back".to_string() } else { note.to_string() };
-    let version = format!("v{} ", env!("CARGO_PKG_VERSION"));
-    let foot = format!(" {}", foot.chars().take(w.saturating_sub(version.len() + 3)).collect::<String>());
-    let pad = w.saturating_sub(crust::display_width(&foot) + version.len());
+    let version = crust::version_tag("torii", env!("CARGO_PKG_VERSION"));
+    let vw = crust::display_width(&version);
+    let foot = format!(" {}", foot.chars().take(w.saturating_sub(vw + 3)).collect::<String>());
+    let pad = w.saturating_sub(crust::display_width(&foot) + vw);
     out.push_str(&format!(
         "{}{}{}",
         Cursor::at(1, rows),
         style::rgb(&format!("{foot}{}", " ".repeat(pad)), Some((200, 200, 205)), Some(BAR_BG), ""),
-        style::rgb(&version, Some(DIM_RGB), Some(BAR_BG), "")
+        style::rgb(&version, None, Some(BAR_BG), "")
     ));
     print!("{out}");
     std::io::stdout().flush().ok();
